@@ -1,0 +1,22 @@
+name: nlp-chatbot
+channels:
+  - defaults
+dependencies:
+  - python=3.10
+  - pip
+  - pip:
+    - scikit-learn==1.6.1
+    - torch
+    - transformers
+    - sentence-transformers
+    - chromadb
+    - fastapi
+    - uvicorn
+    - python-dotenv
+    - openai
+    - datasets
+    - pandas
+    - numpy
+    - pytest
+    - jinja2
+    - python-multipart
