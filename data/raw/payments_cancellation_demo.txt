@@ -1,0 +1,2 @@
+DEMO DATA ONLY — Fictional e-commerce support policy; not a real retailer's terms.
+Demo checkout accepts Visa, Mastercard and PayPal. Payment is authorized at checkout. To cancel an order, use the Cancel button in order history before dispatch or contact support immediately. Once dispatched, an order cannot be cancelled; request a return after delivery instead. For payment errors, check the billing details or contact your payment provider; do not send card details to support.

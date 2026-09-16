@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 BASE_DIR = Path(__file__).resolve().parent.parent  # /home/pccv/snap
 MODEL_DIR = BASE_DIR / "Model_pickle"
 DATA_DIR = BASE_DIR / "data"
-CHROMA_DIR = DATA_DIR / "chroma_db"
+CHROMA_DIR = DATA_DIR / "vector_store"
 
 # ── Load .env ──────────────────────────────────────────────────────────────────
 load_dotenv(BASE_DIR / ".env")

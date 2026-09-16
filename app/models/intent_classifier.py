@@ -89,6 +89,9 @@ class IntentClassifier:
         if not text or not str(text).strip():
             return fallback_result
 
+        if not self.api_key:
+            return fallback_result
+
         try:
             response = self.client.chat.completions.create(
                 model=self.model_name,

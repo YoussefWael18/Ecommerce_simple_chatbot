@@ -5,6 +5,7 @@ Generator module for generating grounded LLM responses via OpenRouter.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 from openai import OpenAI
 
@@ -77,6 +78,26 @@ class Generator:
         Returns:
             The generated response string, or a fallback message upon failure.
         """
+        if not self.api_key:
+            if not retrieved_chunks:
+                return "I do not have enough policy information to answer that question."
+            first = retrieved_chunks[0]
+            passage = first.get("document", "").strip()
+            metadata = first.get("metadata") or {}
+            source = metadata.get("source", "retrieved document")
+            if metadata.get("page"):
+                source += f" - page {metadata['page']}"
+            sentences = re.split(r"(?<=[.!?])\s+", passage)
+            sentences = [s for s in sentences if "DEMO DATA ONLY" not in s]
+            if not sentences:
+                return FALLBACK_MESSAGE
+            def terms(value: str) -> set[str]:
+                words = re.findall(r"[a-z]{4,}", value.lower())
+                return {w[:-2] if w.endswith("ed") else w[:-1] if w.endswith("s") else w
+                        for w in words}
+            question_terms = terms(user_message)
+            excerpt = max(sentences, key=lambda s: len(terms(s) & question_terms))
+            return f"Sample policy excerpt ({source}): {excerpt}"
         try:
             prompt_data = format_rag_prompt(
                 user_message=user_message,

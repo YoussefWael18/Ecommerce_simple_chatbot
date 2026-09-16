@@ -32,6 +32,7 @@ from app.rag.retriever import Retriever
 from app.rag.generator import Generator
 from prompts.greeting_responses import get_greeting_response
 from prompts.rag_prompt import EMPATHY_PREFIX
+from app.rag.documents import source_labels
 
 
 class ChatPipeline:
@@ -58,12 +59,13 @@ class ChatPipeline:
         print("  ✓ Language detector loaded")
 
         # 2. Sentiment Analyzer (RoBERTa)
-        self.sentiment_analyzer = SentimentAnalyzer(
+        self.sentiment_analyzer = (SentimentAnalyzer(
             roberta_model_path=str(ROBERTA_SENTIMENT_PATH),
             tokenizer_path=str(ROBERTA_TOKENIZER_PATH),
             bilstm_model_path=str(BILSTM_SENTIMENT_PATH),
-        )
-        print("  ✓ Sentiment analyzer loaded")
+        ) if ROBERTA_SENTIMENT_PATH.exists() else None)
+        print("  ✓ Sentiment fallback loaded" if self.sentiment_analyzer else
+              "  ! Optional RoBERTa checkpoint absent; using LLM sentiment or neutral")
 
         # 3. Intent Classifier (few-shot via OpenRouter)
         self.intent_classifier = IntentClassifier(
@@ -106,12 +108,14 @@ class ChatPipeline:
         # Use accurate LLM emotional classification; fallback to RoBERTa if missing
         sentiment = intent_result.get("sentiment")
         if not sentiment:
-            sentiment_result = self.sentiment_analyzer.predict(message, model_type="roberta")
+            sentiment_result = (self.sentiment_analyzer.predict(message, model_type="roberta")
+                                if self.sentiment_analyzer else {"sentiment": "neutral"})
             sentiment = sentiment_result.get("sentiment", "neutral")
 
         # ── Stage 4: Routing & Response Generation ─────────────────────────
         escalate = False
         response = ""
+        retrieved = []
 
         if intent_group == "greeting":
             # Greetings / goodbye / gratitude — detect conversational sub-type
@@ -136,8 +140,8 @@ class ChatPipeline:
             )
             response = (
                 f"{EMPATHY_PREFIX}\n\n{rag_response}\n\n"
-                "I've also flagged this for our support team to review personally. "
-                "A human agent will follow up with you shortly."
+                "This needs human review. Please contact a human agent; "
+                "this demo has not created a support ticket."
             )
 
         else:
@@ -167,4 +171,16 @@ class ChatPipeline:
             "sentiment": sentiment,
             "intent": intent_group,
             "escalate": escalate,
+            "sources": source_labels(retrieved if self.generator.api_key else retrieved[:1]),
+            "retrieved_chunks": retrieved,
         }
+
+    def query(self, question: str) -> dict:
+        """Direct document-grounded question answering without intent routing."""
+        retrieved = self.retriever.retrieve(question, top_k=RAG_TOP_K)
+        answer = self.generator.generate(
+            user_message=question, detected_sentiment="neutral",
+            retrieved_chunks=retrieved,
+        )
+        return {"answer": answer, "sources": source_labels(
+            retrieved if self.generator.api_key else retrieved[:1])}

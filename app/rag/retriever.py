@@ -55,6 +55,7 @@ class Retriever:
                 "category": metadata.get("category", ""),
                 "distance": item.get("distance"),
                 "metadata": metadata,
+                "source": metadata.get("source", ""),
             })
         return formatted_results
 

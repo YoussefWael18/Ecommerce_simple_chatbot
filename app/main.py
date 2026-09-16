@@ -10,7 +10,9 @@ from pathlib import Path
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
+import os
 
 # Ensure project root is in sys.path
 _project_root = str(Path(__file__).resolve().parent.parent)
@@ -32,6 +34,15 @@ class ChatResponse(BaseModel):
     sentiment: str
     intent: str
     escalate: bool
+    sources: list[str] = []
+    retrieved_chunks: list[dict] = []
+
+class QueryRequest(BaseModel):
+    question: str = Field(min_length=1)
+
+class QueryResponse(BaseModel):
+    answer: str
+    sources: list[str]
 
 
 class HealthResponse(BaseModel):
@@ -64,6 +75,16 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
+app.add_middleware(CORSMiddleware, allow_origins=[origin.strip() for origin in
+    os.getenv("CORS_ORIGINS", "http://localhost:8501,http://127.0.0.1:8501").split(",") if origin.strip()])
+
+@app.post("/query", response_model=QueryResponse)
+async def query(request: QueryRequest):
+    if not request.question.strip():
+        raise HTTPException(status_code=422, detail="Question cannot be blank.")
+    if pipeline is None:
+        raise HTTPException(status_code=503, detail="Pipeline not initialized.")
+    return QueryResponse(**pipeline.query(request.question.strip()))
 
 
 @app.post("/chat", response_model=ChatResponse)
@@ -96,7 +117,7 @@ async def health():
 
     models = [
         "language_detector (TF-IDF + MultinomialNB)",
-        "sentiment_analyzer (DistilRoBERTa)",
+        "sentiment_analyzer (optional DistilRoBERTa fallback)",
         "intent_classifier (OpenRouter few-shot)",
         "rag_embedder (all-MiniLM-L6-v2)",
         "rag_generator (OpenRouter LLM)",

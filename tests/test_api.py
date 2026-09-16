@@ -33,6 +33,7 @@ def _get_test_client():
         "intent": "order_status",
         "escalate": False,
     }
+    mock_pipeline.query.return_value = {"answer": "Refunds take 5–10 days.", "sources": ["returns_refunds_demo.txt"]}
 
     with patch("app.main.ChatPipeline", return_value=mock_pipeline):
         from app.main import app
@@ -122,3 +123,17 @@ class TestChatEndpoint:
         assert isinstance(data["sentiment"], str)
         assert isinstance(data["intent"], str)
         assert isinstance(data["escalate"], bool)
+
+
+def test_query_valid(client_and_pipeline):
+    client, mock_pipeline = client_and_pipeline
+    response = client.post("/query", json={"question": "How long do refunds take?"})
+    assert response.status_code == 200
+    assert response.json()["sources"] == ["returns_refunds_demo.txt"]
+    mock_pipeline.query.assert_called_once_with("How long do refunds take?")
+
+
+@pytest.mark.parametrize("payload", [{}, {"question": ""}, {"question": "   "}])
+def test_query_invalid(client_and_pipeline, payload):
+    client, _ = client_and_pipeline
+    assert client.post("/query", json=payload).status_code == 422

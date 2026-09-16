@@ -1,92 +1,43 @@
 #!/usr/bin/env python3
-"""
-Build the ChromaDB vector store from the Bitext customer-support dataset.
-
-This script:
-  1. Downloads the Bitext dataset from HuggingFace
-  2. Embeds the 'instruction' column using all-MiniLM-L6-v2
-  3. Stores embeddings + metadata (response, intent, category) in ChromaDB
-
-Run once before starting the chatbot:
-    python scripts/build_vector_store.py
-"""
-
+"""Build the persistent policy-document index from data/raw."""
+import json
 import sys
 from pathlib import Path
 
-# Ensure project root is in sys.path
-_project_root = str(Path(__file__).resolve().parent.parent)
-if _project_root not in sys.path:
-    sys.path.insert(0, _project_root)
+ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
-from datasets import load_dataset
-from app.config import (
-    BITEXT_DATASET_NAME,
-    CHROMA_DIR,
-    CHROMA_COLLECTION_NAME,
-    EMBEDDING_MODEL_NAME,
-)
+from app.config import CHROMA_COLLECTION_NAME, CHROMA_DIR, EMBEDDING_MODEL_NAME
+from app.rag.documents import CHUNK_OVERLAP, CHUNK_SIZE, chunk_documents, load_documents
 from app.rag.embedder import Embedder
 from app.rag.vector_store import VectorStore
 
-
-def main():
-    print(f"Loading dataset: {BITEXT_DATASET_NAME}")
-    ds = load_dataset(BITEXT_DATASET_NAME)
-
-    # The dataset has a single 'train' split
-    df = ds["train"].to_pandas()
-    print(f"  → {len(df)} rows loaded")
-    print(f"  → Columns: {list(df.columns)}")
-    print(f"  → Intent distribution:\n{df['intent'].value_counts().to_string()}\n")
-
-    # Prepare documents and metadata
-    instructions = df["instruction"].tolist()
-    metadatas = []
-    for _, row in df.iterrows():
-        metadatas.append({
-            "response": str(row.get("response", "")),
-            "intent": str(row.get("intent", "")),
-            "category": str(row.get("category", "")),
-        })
-
-    # Generate unique IDs
-    ids = [f"doc_{i}" for i in range(len(instructions))]
-
-    # Embed all instructions
-    print(f"Embedding {len(instructions)} instructions with {EMBEDDING_MODEL_NAME}...")
+def build():
+    pages, issues = load_documents(ROOT / "data" / "raw")
+    chunks = chunk_documents(pages)
+    if not chunks:
+        raise ValueError("No extractable .txt/.pdf documents in data/raw")
     embedder = Embedder(model_name=EMBEDDING_MODEL_NAME)
-    embeddings = embedder.embed(instructions, batch_size=128, show_progress_bar=True)
-    print(f"  → Embedding shape: {len(embeddings)} x {len(embeddings[0])}")
-
-    # Create ChromaDB persistent directory
-    CHROMA_DIR.mkdir(parents=True, exist_ok=True)
-
-    # Store in ChromaDB
-    print(f"Storing in ChromaDB at {CHROMA_DIR}...")
-    store = VectorStore(
-        persist_directory=str(CHROMA_DIR),
-        collection_name=CHROMA_COLLECTION_NAME,
-    )
+    store = VectorStore(str(CHROMA_DIR), CHROMA_COLLECTION_NAME)
+    existing = set(store.collection.get(include=[])["ids"])
+    current = {c["id"] for c in chunks}
+    if existing - current:
+        store.collection.delete(ids=list(existing - current))
     store.add_documents(
-        ids=ids,
-        documents=instructions,
-        embeddings=embeddings,
-        metadatas=metadatas,
+        ids=[c["id"] for c in chunks],
+        documents=[c["text"] for c in chunks],
+        embeddings=embedder.embed([c["text"] for c in chunks]),
+        metadatas=[c["metadata"] for c in chunks],
     )
-
-    print(f"  → {store.count()} documents stored in collection '{CHROMA_COLLECTION_NAME}'")
-    print("Done! Vector store is ready.")
-
-    # Quick sanity check
-    print("\n--- Sanity Check ---")
-    test_query = "Where is my order?"
-    query_emb = embedder.embed_single(test_query)
-    results = store.search(query_emb, top_k=3)
-    print(f"Query: '{test_query}'")
-    for i, r in enumerate(results):
-        print(f"  Result {i+1}: [intent={r['metadata'].get('intent', 'N/A')}] {r['document'][:100]}...")
-
+    CHROMA_DIR.mkdir(parents=True, exist_ok=True)
+    (CHROMA_DIR / "config.json").write_text(json.dumps({
+        "embedding_model": EMBEDDING_MODEL_NAME, "collection": CHROMA_COLLECTION_NAME,
+        "chunk_size": CHUNK_SIZE, "chunk_overlap": CHUNK_OVERLAP,
+        "pages": len(pages), "chunks": len(chunks), "issues": issues,
+    }, indent=2), encoding="utf-8")
+    print(f"Indexed {len(chunks)} chunks from {len(pages)} pages; parsing issues: {issues}")
+    return store
 
 if __name__ == "__main__":
-    main()
+    build()

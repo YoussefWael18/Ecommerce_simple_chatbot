@@ -33,6 +33,8 @@ Model_pickle/roberta_sentiment.pkl
 
 # ── Vector Database and Data Cache ───────────────────────────
 data/chroma_db/
+data/vector_store/
+.ipynb_checkpoints/
 *.sqlite3
 *.sqlite3-journal
 
